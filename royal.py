@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 import time
 import gzip
 import io
+import getpass
 
 class RoyalNFTAutomation:
     def __init__(self):
@@ -22,9 +23,9 @@ class RoyalNFTAutomation:
         self.dashboard_url = "https://royalnft.club/user/index.php"
         self.dashboard_alt_url = "https://royalnft.club/user/dashboard.php"
         
-        # Login credentials from memory
-        self.username = "NFT913388"
-        self.password = "Kumar@123"
+        # Username and password will be set during login
+        self.username = None
+        self.password = None
         
         # Set headers to mimic a real browser but disable compression for debugging
         self.session.headers.update({
@@ -40,6 +41,35 @@ class RoyalNFTAutomation:
             'Sec-Fetch-Site': 'same-origin',
             'Cache-Control': 'no-cache'
         })
+
+    def get_credentials(self):
+        """Get username and password from user input"""
+        print("\n" + "="*50)
+        print("🔐 ROYAL NFT LOGIN CREDENTIALS")
+        print("="*50)
+        
+        try:
+            # Get username
+            self.username = input("👤 Enter Username: ").strip()
+            if not self.username:
+                print("❌ Username cannot be empty!")
+                return False
+            
+            # Get password (hidden input)
+            self.password = getpass.getpass("🔑 Enter Password: ").strip()
+            if not self.password:
+                print("❌ Password cannot be empty!")
+                return False
+            
+            print(f"✅ Credentials received for user: {self.username}")
+            return True
+            
+        except KeyboardInterrupt:
+            print("\n\n⚠️ Input cancelled by user")
+            return False
+        except Exception as e:
+            print(f"❌ Error getting credentials: {e}")
+            return False
 
     def login(self):
         """Login to the Royal NFT website"""
@@ -155,7 +185,7 @@ class RoyalNFTAutomation:
         print("\n👤 USER INFORMATION:")
         print("-"*50)
         print("   🏠 Logo")
-        print("   ✅ Hello, Sharansh Kumar")
+        print(f"   ✅ Hello, {self.username}")
         print("   📊 Your 0 trades are completed and 0 are In progress")
         
         print("\n🛒 PURCHASE NFT:")
@@ -232,7 +262,12 @@ class RoyalNFTAutomation:
         print("🚀 Starting Royal NFT Automation Script")
         print("="*50)
         
-        # Step 1: Login
+        # Step 1: Get credentials from user
+        if not self.get_credentials():
+            print("❌ Failed to get credentials. Exiting...")
+            return False
+        
+        # Step 2: Login
         if not self.login():
             print("❌ Failed to login. Exiting...")
             return False
@@ -240,11 +275,11 @@ class RoyalNFTAutomation:
         # Wait a moment before fetching data
         time.sleep(2)
         
-        # Step 2: Extract dashboard data
+        # Step 3: Extract dashboard data
         data = self.extract_dashboard_data()
         
         if data:
-            # Step 3: Display the data
+            # Step 4: Display the data
             self.display_data(data)
             return True
         else:
