@@ -72,7 +72,7 @@ class RoyalNFTAutomation:
             return False
 
     def login(self):
-        """Login to the Royal NFT website"""
+        """Login to the Royal NFT website and validate credentials"""
         try:
             print("🔐 Starting login process...")
             
@@ -98,24 +98,46 @@ class RoyalNFTAutomation:
             
             print("✅ Accessed login page successfully")
             
-            # Try simple direct login without parsing form first
-            print("🚀 Attempting direct login...")
+            # Parse the login page to see what fields are required
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Prepare login data
+            # Look for the login form
+            login_form = soup.find('form')
+            if login_form:
+                print("🔍 Analyzing login form...")
+                # Find all input fields
+                inputs = login_form.find_all('input')
+                for inp in inputs:
+                    inp_type = inp.get('type', 'text')
+                    inp_name = inp.get('name', 'unnamed')
+                    inp_value = inp.get('value', '')
+                    print(f"   📝 Input: type='{inp_type}', name='{inp_name}', value='{inp_value}'")
+            
+            # Try simple direct login
+            print("🚀 Attempting login...")
+            
+            # Prepare login data with correct field names and token
             login_data = {
-                'username': self.username,
+                'userid': self.username,  # The form uses 'userid' not 'username'
                 'password': self.password
             }
+            
+            # Add the CSRF token if found
+            if login_form:
+                token_input = login_form.find('input', {'name': 'token', 'type': 'hidden'})
+                if token_input and token_input.get('value'):
+                    login_data['token'] = token_input.get('value')
+                    print(f"🔑 Added CSRF token: {token_input.get('value')}")
             
             # Send login request with proper headers
             login_headers = {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Referer': self.login_url,
                 'Origin': self.base_url,
-                'X-Requested-With': 'XMLHttpRequest'  # This might help
+                'X-Requested-With': 'XMLHttpRequest'
             }
             
-            print(f"📤 Sending login request with username: {self.username}")
+            print(f"📤 Validating credentials for username: {self.username}")
             
             login_response = self.session.post(
                 self.login_process_url,
@@ -127,22 +149,47 @@ class RoyalNFTAutomation:
             print(f"📥 Login response status: {login_response.status_code}")
             print(f"🔗 Final URL after login: {login_response.url}")
             
-            # Wait a moment after login
-            time.sleep(2)
-            
-            # Try to access dashboard directly to test login success
-            print("🔄 Testing dashboard access...")
-            dashboard_test = self.session.get(self.dashboard_url)
-            
-            print(f"📊 Dashboard test status: {dashboard_test.status_code}")
-            print(f"🔗 Dashboard test URL: {dashboard_test.url}")
-            
-            if dashboard_test.status_code == 200:
-                print("✅ Login successful! Dashboard accessible.")
-                return True
-            else:
-                print("❌ Dashboard not accessible - login likely failed")
+            # Check if login failed by looking at the response
+            if login_response.status_code != 200:
+                print("❌ Login failed - Server error")
                 return False
+            
+            # Check if we're still on login page or error page
+            if 'login.php' in login_response.url and 'process' not in login_response.url:
+                print("❌ Login failed - Invalid username or password")
+                return False
+            
+            # Try to access a protected page to verify login success
+            time.sleep(2)
+            test_urls = [
+                "https://royalnft.club/user/index.php",
+                "https://royalnft.club/user/profile.php",
+                "https://royalnft.club/user/my_nft.php"
+            ]
+            
+            for test_url in test_urls:
+                print(f"🔄 Testing access to: {test_url}")
+                test_response = self.session.get(test_url)
+                
+                if test_response.status_code == 200:
+                    # Check if we can access actual content (not redirected to login/register)
+                    content = test_response.text.lower()
+                    
+                    # If we find actual dashboard content, login succeeded
+                    if any(keyword in content for keyword in ['balance', 'profit', 'dashboard', 'logout', 'wallet']):
+                        print(f"✅ Login successful! Accessing dashboard at: {test_url}")
+                        return True
+                    elif 'register' in test_response.url or 'login' in test_response.url:
+                        continue  # Try next URL
+                    else:
+                        # Page loads but might be dashboard
+                        print(f"✅ Login successful! Dashboard accessible at: {test_url}")
+                        return True
+            
+            # If no protected pages are accessible, login likely failed
+            print("❌ Login failed - Unable to access dashboard pages")
+            print("⚠️ Please check your username and password")
+            return False
                 
         except requests.exceptions.RequestException as e:
             print(f"❌ Network error during login: {e}")
@@ -152,23 +199,108 @@ class RoyalNFTAutomation:
             return False
 
     def extract_dashboard_data(self):
-        """Extract dashboard data - returns predefined structure since pages redirect to registration"""
+        """Extract real dashboard data from accessible pages after successful login"""
         try:
-            print("📊 Extracting Royal NFT dashboard data...")
+            print("📊 Extracting real dashboard data...")
             
-            # Basic data structure - since actual pages redirect to registration,
-            # we'll return the structure you provided
+            # URLs to try for data extraction
+            test_urls = [
+                "https://royalnft.club/user/index.php",
+                "https://royalnft.club/user/my_nft.php", 
+                "https://royalnft.club/user/withdraw.php",
+                "https://royalnft.club/user/profile.php"
+            ]
+            
             dashboard_data = {
-                'user_info': {'greetings': ['Hello, Sharansh Kumar']},
-                'combined_financial_data': {},
-                'status': 'Login successful, displaying dashboard data'
+                'user_info': {'greetings': []},
+                'financial_data': {},
+                'trade_info': '',
+                'pages_accessed': 0
             }
             
-            print("✅ Data extraction completed!")
+            # Try to extract real data from accessible pages
+            for url in test_urls:
+                try:
+                    print(f"🔍 Checking: {url}")
+                    response = self.session.get(url)
+                    
+                    if response.status_code == 200:
+                        # Decode response content
+                        try:
+                            content = response.text
+                            soup = BeautifulSoup(content, 'html.parser')
+                            
+                            # Check if this is actually a dashboard page (not registration)
+                            if 'register' not in response.url.lower() and 'login' not in response.url.lower():
+                                print(f"✅ Successfully accessed: {url}")
+                                dashboard_data['pages_accessed'] += 1
+                                
+                                # Extract user greeting
+                                for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5']):
+                                    text = tag.get_text(strip=True)
+                                    if 'hello' in text.lower() and text not in dashboard_data['user_info']['greetings']:
+                                        dashboard_data['user_info']['greetings'].append(text)
+                                        print(f"👤 Found greeting: {text}")
+                                
+                                # Extract financial data using regex patterns
+                                import re
+                                page_text = soup.get_text()
+                                
+                                # Look for financial data patterns
+                                financial_patterns = {
+                                    'Main Balance': r'main\s+balance[:\s]*\$?([\d,]+(?:\.\d{2})?)',
+                                    'Total Profit': r'total\s+profit[:\s]*\$?([\d,]+(?:\.\d{2})?)', 
+                                    'Profit From Trades': r'profit\s+from\s+trades[:\s]*\$?([\d,]+(?:\.\d{2})?)',
+                                    'Referral Income': r'referral\s+income[:\s]*\$?([\d,]+(?:\.\d{2})?)',
+                                    'Direct Team': r'direct\s+team[:\s]*(\d+)',
+                                    'My Team': r'my\s+team[:\s]*(\d+)|total\s+team[:\s]*(\d+)',
+                                    'Total Business': r'total\s+business[:\s]*\$?([\d,]+(?:\.\d{2})?)',
+                                    'Total Deposit': r'total\s+deposit[:\s]*\$?([\d,]+(?:\.\d{2})?)',
+                                    'Total Withdraw': r'total\s+withdraw[:\s]*\$?([\d,]+(?:\.\d{2})?)'
+                                }
+                                
+                                for label, pattern in financial_patterns.items():
+                                    matches = re.findall(pattern, page_text, re.IGNORECASE)
+                                    if matches:
+                                        # Take the first non-empty match
+                                        value = next((m for m in matches if m), None)
+                                        if value:
+                                            dashboard_data['financial_data'][label] = value
+                                            print(f"💰 Found {label}: {value}")
+                                
+                                # Look for trade information
+                                trade_patterns = [
+                                    r'(\d+)\s+trades?\s+(?:are\s+)?completed',
+                                    r'(\d+)\s+(?:are\s+)?in\s+progress'
+                                ]
+                                
+                                for pattern in trade_patterns:
+                                    matches = re.findall(pattern, page_text, re.IGNORECASE)
+                                    if matches:
+                                        dashboard_data['trade_info'] += f" {matches[0]} trades found"
+                                        print(f"📋 Found trade info: {matches[0]}")
+                            else:
+                                print(f"⚠️ {url} redirected to: {response.url}")
+                                
+                        except Exception as e:
+                            print(f"⚠️ Error parsing {url}: {e}")
+                            continue
+                    else:
+                        print(f"⚠️ {url} returned status: {response.status_code}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Error accessing {url}: {e}")
+                    continue
+            
+            # If no real user greeting found, use the username
+            if not dashboard_data['user_info']['greetings']:
+                dashboard_data['user_info']['greetings'] = [f"Hello, {self.username}"]
+            
+            print(f"✅ Data extraction completed! Accessed {dashboard_data['pages_accessed']} pages")
             return dashboard_data
             
         except Exception as e:
-            print(f"❌ Error parsing dashboard data: {e}")
+            print(f"❌ Error during data extraction: {e}")
             return None
 
     def display_data(self, data):
@@ -185,8 +317,19 @@ class RoyalNFTAutomation:
         print("\n👤 USER INFORMATION:")
         print("-"*50)
         print("   🏠 Logo")
-        print(f"   ✅ Hello, {self.username}")
-        print("   📊 Your 0 trades are completed and 0 are In progress")
+        
+        # Show actual greetings found or username
+        if data.get('user_info', {}).get('greetings'):
+            for greeting in data['user_info']['greetings']:
+                print(f"   ✅ {greeting}")
+        else:
+            print(f"   ✅ Hello, {self.username}")
+        
+        # Show trade information if found
+        if data.get('trade_info'):
+            print(f"   📋 Trade Status: {data['trade_info']}")
+        else:
+            print("   📋 Your trades status: No trade information found")
         
         print("\n🛒 PURCHASE NFT:")
         print("-"*50)
@@ -195,66 +338,55 @@ class RoyalNFTAutomation:
         print("\n💰 FINANCIAL SUMMARY:")
         print("-"*50)
         
-        # Financial data in the exact format from your example
-        financial_data = [
-            {
-                'title': 'Main Balance',
-                'description': 'This is total profit for the day\nIt will be credited to your crypto wallet at 11:00 Am',
-                'amount': '$0'
-            },
-            {
-                'title': 'Total Profit', 
-                'description': 'This is total profit you earned till date\nTrade Profit + Referral Earnings + Rewards',
-                'amount': '$0'
-            },
-            {
-                'title': 'Profit From Trades',
-                'description': 'This is total profit you earned till date\nTrade Profit', 
-                'amount': '$0'
-            },
-            {
-                'title': 'Referral Income',
-                'description': 'This is Refferal Income you earned till date\nRefferal Income',
-                'amount': '$0'
-            },
-            {
-                'title': 'Direct Team',
-                'description': 'This is your direct team till date\nDirect Team',
-                'amount': '0'
-            },
-            {
-                'title': 'My Team', 
-                'description': 'This is your total team till date\nTotal Team',
-                'amount': '0'
-            },
-            {
-                'title': 'Total Business',
-                'description': 'This is your total Business till date\nTotal Business',
-                'amount': '$0'
-            },
-            {
-                'title': 'Total Deposit',
-                'description': 'This is your total Deposit till date\nTotal Deposit', 
-                'amount': '$0'
-            },
-            {
-                'title': 'Total Withdraw',
-                'description': 'This is your total Withdraw till date\nTotal Withdraw',
-                'amount': '$0'
-            }
+        # Define financial items to display
+        financial_items = [
+            ('Main Balance', 'This is total profit for the day\nIt will be credited to your crypto wallet at 11:00 AM'),
+            ('Total Profit', 'This is total profit you earned till date\nTrade Profit + Referral Earnings + Rewards'),
+            ('Profit From Trades', 'This is total profit you earned till date\nTrade Profit'),
+            ('Referral Income', 'This is Referral Income you earned till date\nReferral Income'),
+            ('Direct Team', 'This is your direct team till date\nDirect Team'),
+            ('My Team', 'This is your total team till date\nTotal Team'),
+            ('Total Business', 'This is your total Business till date\nTotal Business'),
+            ('Total Deposit', 'This is your total Deposit till date\nTotal Deposit'),
+            ('Total Withdraw', 'This is your total Withdraw till date\nTotal Withdraw')
         ]
         
-        for item in financial_data:
-            print(f"\n📊 {item['title']}")
-            print(f"   Amount: {item['amount']}")
-            # Format description for better readability
-            desc_lines = item['description'].split('\n')
+        # Display financial data (real or default)
+        for item_name, description in financial_items:
+            print(f"\n📊 {item_name}")
+            
+            # Use real data if available, otherwise show $0 or 0
+            if data.get('financial_data') and item_name in data['financial_data']:
+                value = data['financial_data'][item_name]
+                # Add $ prefix if it's a monetary value and doesn't already have it
+                if item_name not in ['Direct Team', 'My Team'] and not value.startswith('$'):
+                    value = f"${value}"
+                print(f"   Amount: {value}")
+                print(f"   💵 REAL DATA EXTRACTED FROM WEBSITE")
+            else:
+                # Default values
+                if item_name in ['Direct Team', 'My Team']:
+                    print("   Amount: 0")
+                else:
+                    print("   Amount: $0")
+            
+            # Show description
+            desc_lines = description.split('\n')
             for line in desc_lines:
                 if line.strip():
                     print(f"   📄 {line.strip()}")
         
         print("\n" + "="*80)
-        print("📊 SUMMARY: Dashboard data displayed successfully!")
+        
+        # Show summary
+        pages_accessed = data.get('pages_accessed', 0)
+        real_data_count = len(data.get('financial_data', {}))
+        
+        if real_data_count > 0:
+            print(f"📊 SUMMARY: ✅ {real_data_count} real financial data items extracted from {pages_accessed} pages!")
+        else:
+            print(f"📊 SUMMARY: Login successful, dashboard template displayed ({pages_accessed} pages checked)")
+        
         print("="*80)
 
     def run(self):
